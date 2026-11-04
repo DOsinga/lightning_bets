@@ -10,6 +10,7 @@ use ldk_node::config::Config;
 use ldk_node::entropy::NodeEntropy;
 use ldk_node::lightning::ln::channelmanager::PaymentId;
 use ldk_node::lightning::ln::msgs::SocketAddress;
+use ldk_node::lightning::routing::router::RouteParametersConfig;
 use ldk_node::lightning_invoice::{Bolt11Invoice, Bolt11InvoiceDescription, Description};
 use ldk_node::lightning_types::payment::{PaymentHash, PaymentPreimage};
 use ldk_node::payment::{PaymentDetails, PaymentDirection, PaymentKind, PaymentStatus};
@@ -19,25 +20,29 @@ use serde_json::{json, Value};
 const POLL: Duration = Duration::from_secs(5);
 // How long after kickoff a match can take, including extra time and the oracle noticing.
 const MATCH_SECS: i64 = 4 * 3600;
+// LDK refuses HTLCs that expire more than 2016 blocks out; keep a margin for the sender's
+// random extra delay.
+const MAX_CLTV_DELTA: i64 = 1800;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(long, env = "BET_DATA_DIR")]
+    #[arg(long, env = "BET_DATA_DIR", default_value = "~/.lightning_bets")]
     data_dir: String,
-    #[arg(long, env = "BET_NETWORK", default_value = "regtest")]
+    /// Mutinynet, a signet with 30 second blocks and free coins, unless you say otherwise.
+    #[arg(long, env = "BET_NETWORK", default_value = "signet")]
     network: Network,
     /// `bitcoind://user:pass@host:port` for Bitcoin Core RPC, otherwise an Esplora URL.
-    #[arg(long, env = "BET_CHAIN")]
+    #[arg(long, env = "BET_CHAIN", default_value = "https://mutinynet.com/api")]
     chain: String,
     #[arg(long, env = "BET_LISTEN", default_value = "0.0.0.0:9735")]
     listen: String,
     #[arg(
         long,
         env = "BET_ORACLE",
-        default_value = "https://douwe.com/projects/lightning_oracle/api"
+        default_value = "https://douwe.com/projects/lightning_bets/api"
     )]
     oracle: String,
-    #[arg(long, env = "BET_BLOCK_SECS", default_value_t = 600)]
+    #[arg(long, env = "BET_BLOCK_SECS", default_value_t = 30)]
     block_secs: i64,
     #[command(subcommand)]
     command: Command,
@@ -79,9 +84,16 @@ enum Command {
     Watch { bet_id: String },
 }
 
+fn data_dir(cli: &Cli) -> String {
+    match cli.data_dir.strip_prefix("~/") {
+        Some(rest) => format!("{}/{rest}", std::env::var("HOME").unwrap()),
+        None => cli.data_dir.clone(),
+    }
+}
+
 fn start_node(cli: &Cli) -> Node {
     let mut config = Config::default();
-    config.storage_dir_path = cli.data_dir.clone();
+    config.storage_dir_path = data_dir(cli);
     config.network = cli.network;
     config.listening_addresses = Some(vec![SocketAddress::from_str(&cli.listen).unwrap()]);
     config.manually_handle_unknown_bolt11_payments = true;
@@ -104,7 +116,7 @@ fn start_node(cli: &Cli) -> Node {
     } else {
         builder.set_chain_source_esplora(cli.chain.clone(), None);
     }
-    let entropy = NodeEntropy::from_seed_path(format!("{}/seed", cli.data_dir)).unwrap();
+    let entropy = NodeEntropy::from_seed_path(format!("{}/seed", data_dir(cli))).unwrap();
     let node = builder.build(entropy).unwrap();
     node.start().unwrap();
     node
@@ -180,7 +192,7 @@ fn post_invoice(cli: &Cli, node: &Node, bet: &Value, side: &str) {
     let secs_to_kickoff = (kickoff - Utc::now()).num_seconds().max(0);
     let cltv_delta = (secs_to_kickoff + MATCH_SECS) / cli.block_secs + 6;
     assert!(
-        cltv_delta < 1000,
+        cltv_delta < MAX_CLTV_DELTA,
         "kickoff is too far away to hold a payment until then"
     );
     let description = Bolt11InvoiceDescription::Direct(
@@ -294,7 +306,11 @@ fn watch(cli: &Cli, node: &Node, bet_id: &str) {
                         "their invoice asks for the wrong stake"
                     );
                     println!("sending our {} sat stake", stake_of(&bet, me));
-                    if let Err(e) = node.bolt11_payment().send(&invoice, None) {
+                    let route = RouteParametersConfig {
+                        max_total_cltv_expiry_delta: MAX_CLTV_DELTA as u32 + 200,
+                        ..Default::default()
+                    };
+                    if let Err(e) = node.bolt11_payment().send(&invoice, Some(route)) {
                         println!("sending failed ({e:?}), trying again");
                     }
                 }

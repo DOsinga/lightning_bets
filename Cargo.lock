@@ -1252,7 +1252,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lightning_bet"
+name = "lightning_bets"
 version = "0.1.0"
 dependencies = [
  "chrono",

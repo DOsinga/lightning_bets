@@ -113,7 +113,7 @@ Step 7 is what separates a working system from one that only works while both no
 
 ## Spike results (steps 1–7)
 
-The spike lives in `~/Dropbox/Douwe/Proj/lightning_bet` (`cargo run`, needs `bitcoind` on `PATH`). Regtest, two LDK Nodes built from `main`, one direct 1M-sat channel. Both scenarios pass:
+The spike is `src/bin/spike.rs` (`cargo run --bin spike`, needs `bitcoind` on `PATH`). Regtest, two LDK Nodes built from `main`, one direct 1M-sat channel. Both scenarios pass:
 
 - **Cooperative settle.** 200k against 200k, with a CLTV delta of 72. Both stakes stayed held through 48 mined blocks (about 8 hours of mainnet time). After the reveal, the winner claimed and the loser rejected, and the channel balances moved by exactly 200k with no fees.
 - **Force-close mid-bet.** 100k against 200k. The loser force-closed with both stakes in flight, the oracle then revealed the outcome, and the winner claimed on-chain with the preimage. After 162 blocks everything was swept: the winner ended up 200k up, the loser 200k down, with 482 and 121 sats of on-chain fees.

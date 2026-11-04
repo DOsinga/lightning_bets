@@ -1,45 +1,45 @@
-# lightning_bet
+# Lightning Bets
 
-Spike for betting a friend over Lightning: two held payments locked to an oracle's
-hashes, settled when the oracle reveals the winning preimage. See `PLAN.md`
-for the design; the spike results are at the end.
+Bet a friend on a football match over Lightning without anyone holding the money. Each bet
+gets two secrets from an oracle, one for yes and one for no. Both players send their stake as a
+held payment locked to the other side's secret. After full time the oracle reveals the winning
+secret: the winner collects and the loser hands the other stake back.
 
-`cargo run --bin spike` starts a regtest `bitcoind`, two LDK nodes (Alice and Bob) with a direct
-channel, and plays two bets:
+Try it at https://douwe.com/projects/lightning_bets, which lists upcoming matches and has a
+download of the `bet` command line tool for Apple Silicon Macs. `PLAN.md` explains the design and
+what the regtest spike found.
 
-1. 200k vs 200k, held for 48 blocks (about 8 hours), then settled off-chain:
-   the winner claims, the loser rejects, balances move by exactly the stake.
-2. 100k vs 200k, Bob force-closes the channel while both stakes are in flight;
-   the oracle still decides who gets the money once everything is swept on-chain.
+## What's here
 
-Needs `bitcoind` on `PATH` (or `BITCOIND_EXE` set). Uses LDK Node from `main`,
-because `receive_for_hash_with_min_final_cltv_expiry_delta` isn't released yet.
-Held payments only work with `manually_handle_unknown_bolt11_payments` enabled.
+- `src/bin/bet.rs`: the `bet` CLI, an LDK Node wallet that talks to the oracle.
+- `lightning_bets.py`, `lightning_bets.html`: the oracle and the project page, as served by
+  [douwe.com](https://douwe.com). The oracle stores bets in sqlite and resolves them from ESPN's
+  public scoreboard.
+- `src/bin/spike.rs`: the first experiment. `cargo run --bin spike` starts a regtest `bitcoind`
+  (needs it on `PATH`), two nodes with a channel, and plays a bet that settles off-chain and one
+  that settles on-chain after a force-close.
+- `build_mac.sh`: builds `static/bet-macos-arm64`, the binary the page offers for download.
 
-## The `bet` CLI
+LDK Node is pinned to a `main` commit, because
+`receive_for_hash_with_min_final_cltv_expiry_delta` isn't in a release yet.
 
-Each player runs their own node. Configure it with environment variables:
+## Using `bet`
 
-```
-BET_DATA_DIR=~/.lightning_bet      # node keys and state
-BET_NETWORK=regtest                # or signet, bitcoin
-BET_CHAIN=bitcoind://user:pass@127.0.0.1:18443   # or an Esplora URL
-BET_LISTEN=0.0.0.0:9735
-BET_ORACLE=https://douwe.com/projects/lightning_oracle/api
-```
-
-Then:
+By default `bet` runs on Mutinynet (a signet with 30 second blocks and a faucet), keeps its node in
+`~/.lightning_bets` and uses the oracle on douwe.com. Every default can be changed with a flag or
+environment variable; see `bet --help`.
 
 ```
 bet info                                   # node id, funding address, balances
 bet run                                    # stay online while your friend opens a channel
-bet open <node_id@host:port> 1000000 --push 500000
-bet offer --league uefa.europa --event 401915534 --outcome home --side yes --stake 50000 --their-stake 100000
+bet open <node_id@host:port> 200000 --push 100000
+bet offer --league eng.1 --event <espn event id> --outcome home --side yes --stake 10000 --their-stake 10000
 bet accept <bet_id>                        # your friend, on their machine
 bet watch <bet_id>                         # resume after a restart
 ```
 
-Matches are ESPN league and event ids. `offer` and `accept` keep running until the bet is
-settled: the accepting side pays first, the offering side pays once that stake is held, and
-after full time the winner claims while the loser returns the other stake. Neither side pays
-after kickoff. A freshly started node can take up to a minute to reconnect to its channel peer.
+`offer` and `accept` keep running until the bet is settled: the accepting side pays first, the
+offering side pays once that stake is held, nobody pays after kickoff, and after full time the
+winner claims while the loser returns the other stake. A freshly started node can take up to a
+minute to reconnect to its channel peer. On Mutinynet a payment can be held for about 15 hours, so
+bets can be placed at most about 11 hours before kickoff.

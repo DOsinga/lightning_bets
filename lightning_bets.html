@@ -1,0 +1,154 @@
+<script type="text/markdown" id="info">
+name: Lightning Bets
+description: >
+  Bet a friend on a football match over Lightning, without anyone holding the money.
+  Both stakes are held payments locked to an oracle's secrets; after full time the
+  oracle reveals the winning secret and the winner collects.
+github: lightning_bets
+</script>
+
+<style>
+.lb code, .lb pre { font-family: ui-monospace, Menlo, monospace; font-size: 0.85em; }
+.lb pre { background: rgba(127,127,127,0.12); padding: 0.7em 0.9em; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lb ol li { margin-bottom: 0.9em; }
+.lb table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
+.lb td { padding: 0.35em 0.5em; border-bottom: 1px solid rgba(127,127,127,0.2); vertical-align: top; }
+.lb tr.match { cursor: pointer; }
+.lb tr.match:hover, .lb tr.match.selected { background: rgba(127,127,127,0.15); }
+.lb tr.closed { opacity: 0.5; cursor: default; }
+.lb .league { color: #888; white-space: nowrap; }
+.lb .when { white-space: nowrap; }
+.lb #builder { display: none; margin-bottom: 1em; padding: 0.8em 1em; border: 1px solid rgba(127,127,127,0.3); border-radius: 6px; }
+.lb #builder label { margin-right: 1em; white-space: nowrap; }
+.lb #builder input[type=number] { width: 7em; }
+</style>
+
+<div class="lb">
+
+<p>Each bet gets two fresh secrets from the oracle on this page, one for yes and one for no.
+You and your friend each send your stake as a Lightning payment that is held, not settled,
+locked to the secret of your friend's side. After full time the oracle reveals the winning
+secret: the winner uses it to collect, the loser hands the other stake back. Nobody, the oracle
+included, ever holds the money. Results come from ESPN.</p>
+
+<p>It runs on <a href="https://mutinynet.com">Mutinynet</a>, a test network with free coins and
+30 second blocks, so it's play money. The <code>bet</code> program is a command line tool for
+Apple Silicon Macs.</p>
+
+<h2>Getting set up</h2>
+<ol>
+<li>Download <code>bet</code> and check it runs. This creates your node in <code>~/.lightning_bets</code>:
+<pre>curl -o bet {{ download_url }}
+chmod +x bet
+./bet info</pre>
+(Download it with <code>curl</code> rather than your browser, or macOS will refuse to run it.)
+{% if oracle_url %}<br>This copy of the page runs its own oracle, so also do:
+<pre>export BET_ORACLE={{ oracle_url }}</pre>{% endif %}</li>
+
+<li>Get some coins: paste the <code>fund at</code> address from <code>./bet info</code> into the
+<a href="https://faucet.mutinynet.com">Mutinynet faucet</a>. Blocks come every 30 seconds, so a
+minute later <code>./bet info</code> shows the balance.</li>
+
+<li>Open a channel with your friend. One of you has to be reachable: on the same network
+that's easy, otherwise forward port 9735 on your router. That person keeps their node online with
+<pre>./bet run</pre>
+and sends the other their <code>node id</code> and address. The other one opens a channel and
+pushes half of it across, so you both have something to bet with:
+<pre>./bet open &lt;node id&gt;@&lt;their ip&gt;:9735 200000 --push 100000</pre>
+After a few blocks <code>./bet info</code> shows the channel as usable. You only do this once;
+the channel works for every bet after.</li>
+</ol>
+
+<h2>Placing a bet</h2>
+
+<p>Pick a match. Because the payments are held on the chain's clock, a bet can only be placed up
+to 11 hours before kickoff, and not after it.</p>
+
+<div id="builder">
+<p><b id="b-match"></b></p>
+<p>
+<label><input type="radio" name="outcome" value="home" checked> <span id="b-home"></span> wins</label>
+<label><input type="radio" name="outcome" value="draw"> draw</label>
+<label><input type="radio" name="outcome" value="away"> <span id="b-away"></span> wins</label>
+</p>
+<p>
+<label>your stake <input type="number" id="b-stake" value="10000" min="1"> sats</label>
+<label>their stake <input type="number" id="b-their" value="10000" min="1"> sats</label>
+</p>
+<p>You bet that this happens, your friend bets it doesn't. Run:</p>
+<pre id="b-command"></pre>
+</div>
+
+{% if matches %}
+<table>
+{% for m in matches %}
+<tr class="match{% if not m.open %} closed{% endif %}" data-league="{{ m.league }}" data-event="{{ m.event_id }}" data-home="{{ m.home }}" data-away="{{ m.away }}" data-open="{{ m.open|yesno:'1,' }}">
+<td class="when"><time datetime="{{ m.kickoff|date:'c' }}">{{ m.kickoff|date:'D H:i' }} UTC</time></td>
+<td>{{ m.home }} – {{ m.away }}</td>
+<td class="league">{{ m.league_name }}{% if not m.open %} · not open yet{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+{% else %}
+<p>No matches in the next day and a half. Come back later.</p>
+{% endif %}
+
+
+<p>The command prints a bet id. Your friend runs</p>
+<pre>./bet accept &lt;bet id&gt;</pre>
+<p>which shows them the question and both stakes before anything is paid. Keep both running until
+they say <code>done</code>: the stakes go across before kickoff, and after full time the winner
+collects. If you have to stop, <code>./bet watch &lt;bet id&gt;</code> picks up where it left off,
+as long as you're back before the match ends.</p>
+
+<h2>The oracle</h2>
+<p>For anyone who wants to build their own client:</p>
+<pre>POST /projects/lightning_bets/api/bets
+     {"league": "eng.1", "event_id": "...", "outcome": "home", "offerer": "yes",
+      "stakes": {"yes": 10000, "no": 10000}}
+GET  /projects/lightning_bets/api/bets/&lt;bet_id&gt;
+POST /projects/lightning_bets/api/bets/&lt;bet_id&gt;/invoice
+     {"side": "yes", "invoice": "lntbs..."}</pre>
+<p>Bets resolve on the final score as ESPN reports it, extra time included and penalty
+shootouts not, and are void if the match is postponed, cancelled or abandoned.</p>
+
+</div>
+
+<script>
+(() => {
+  document.querySelectorAll('.lb time').forEach(t => {
+    t.textContent = new Date(t.getAttribute('datetime')).toLocaleString([], {
+      weekday: 'short', hour: '2-digit', minute: '2-digit'
+    });
+  });
+
+  const builder = document.getElementById('builder');
+  let selected = null;
+
+  function update() {
+    if (!selected) return;
+    const outcome = builder.querySelector('input[name=outcome]:checked').value;
+    const stake = document.getElementById('b-stake').value;
+    const their = document.getElementById('b-their').value;
+    document.getElementById('b-command').textContent =
+      `./bet offer --league ${selected.dataset.league} --event ${selected.dataset.event}` +
+      ` --outcome ${outcome} --side yes --stake ${stake} --their-stake ${their}`;
+  }
+
+  document.querySelectorAll('.lb tr.match').forEach(row => {
+    if (!row.dataset.open) return;
+    row.addEventListener('click', () => {
+      if (selected) selected.classList.remove('selected');
+      selected = row;
+      row.classList.add('selected');
+      document.getElementById('b-match').textContent = `${row.dataset.home} – ${row.dataset.away}`;
+      document.getElementById('b-home').textContent = row.dataset.home;
+      document.getElementById('b-away').textContent = row.dataset.away;
+      builder.style.display = 'block';
+      builder.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      update();
+    });
+  });
+  builder.addEventListener('input', update);
+})();
+</script>
