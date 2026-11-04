@@ -1,0 +1,11 @@
+[package]
+name = "lightning_bet"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# receive_for_hash_with_min_final_cltv_expiry_delta landed after v0.7.0, so pin main.
+ldk-node = { git = "https://github.com/lightningdevkit/ldk-node", rev = "79e4d92ae73c753dd64ee68ed8cb599cda8af8c7", default-features = false, features = ["chain-bitcoind", "storage-sqlite"] }
+corepc-node = { version = "0.10.1", default-features = false, features = ["29_0"] }
+rand = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
