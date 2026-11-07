@@ -9,6 +9,12 @@ Try it at https://douwe.com/projects/lightning_bets, which lists upcoming matche
 download of the `bet` command line tool for Apple Silicon Macs. `PLAN.md` explains the design and
 what the regtest spike found.
 
+Run the project page and local oracle with:
+
+```bash
+uvx douwe lightning_bets
+```
+
 ## What's here
 
 - `src/bin/bet.rs`: the `bet` CLI, an LDK Node wallet that talks to the oracle.

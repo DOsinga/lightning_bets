@@ -1,4 +1,3 @@
 /target
 __pycache__/
 bets*.sqlite3
-/static/bet*
